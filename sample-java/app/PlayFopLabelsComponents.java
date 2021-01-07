@@ -21,7 +21,7 @@ public class PlayFopLabelsComponents extends BuiltInComponentsFromContext
 
     @Override
     public Router router() {
-        Application applicationController = new Application(config(), formFactory(), playFop());
+        Application applicationController = new Application(config(), formFactory(), messagesApi(), langs(), playFop());
         Assets assets = new Assets(scalaHttpErrorHandler(), assetsMetadata());
         return new Routes(scalaHttpErrorHandler(), applicationController, assets).asJava();
     }
