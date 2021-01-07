@@ -2,6 +2,7 @@ package controllers;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -32,7 +33,9 @@ import models.Label;
 import models.PaperSizeAndWhiteSpace;
 import play.data.Form;
 import play.data.FormFactory;
+import play.i18n.*;
 import play.mvc.Controller;
+import play.mvc.Http;
 import play.mvc.Http.HeaderNames;
 import play.mvc.Result;
 import views.util.Calc;
@@ -85,13 +88,15 @@ public class Application extends Controller {
 
     private Config config;
     private FormFactory formFactory;
+    private Messages messages;
     private PlayFop playFop;
     private List<String> fontFamilies;
 
-    public Application(Config config, FormFactory formFactory, PlayFop playFop) {
+    public Application(Config config, FormFactory formFactory, MessagesApi messagesApi, Langs langs, PlayFop playFop) {
 
         this.config = config;
         this.formFactory = formFactory;
+        this.messages = new MessagesImpl(langs.preferred(langs.availables()), messagesApi);
         this.playFop = playFop;
 
         this.fontFamilies = getFontFamilies();  // getFontFamilies() is an expensive operation, so cache its result
@@ -156,7 +161,7 @@ public class Application extends Controller {
         List<String> imageNames = new ArrayList<String>(IMAGE_NAMES_TO_PATHS.keySet());
         imageNames.add(0, "");  // offer a no-image option
 
-        return ok(views.html.labelDesign.render(getInitialForm(), fontFamilies, getFontSizesAndText(), imageNames));
+        return ok(views.html.labelDesign.render(getInitialForm(), fontFamilies, getFontSizesAndText(), imageNames, this.messages));
     }
 
     private Form<Label> getInitialForm() {
@@ -204,9 +209,9 @@ public class Application extends Controller {
         return fontSizes;
     }
 
-    public Result generateSingleLabelAsPNG() {
+    public Result generateSingleLabelAsPNG(Http.Request request) {
 
-        Form<Label> labelForm = formFactory.form(Label.class).bindFromRequest();
+        Form<Label> labelForm = formFactory.form(Label.class).bindFromRequest(request);
         if (labelForm.hasErrors()) {
             // UI prevents user from entering bad input; only a hand-rolled
             // input URL can trigger errors. We want to alert user to those
@@ -243,9 +248,9 @@ public class Application extends Controller {
         return imageURI;
     }
 
-    public Result generateLabelsSheetAsPDF() {
+    public Result generateLabelsSheetAsPDF(Http.Request request) {
 
-        Form<Label> labelForm = formFactory.form(Label.class).bindFromRequest();
+        Form<Label> labelForm = formFactory.form(Label.class).bindFromRequest(request);
         if (labelForm.hasErrors()) {
             // See comment above about not bothering with a nice presentation.
             return badRequest(labelForm.errorsAsJson());
@@ -270,7 +275,6 @@ public class Application extends Controller {
                 autoDetectFontsForPDF(true).foUserAgentBlock(foUserAgentBlock).build();
 
         String contentDispHeader = String.format("attachment; filename=%s", SHEET_FILENAME);
-        response().setHeader(HeaderNames.CONTENT_DISPOSITION, contentDispHeader);
 
         byte[] pdfBytes = playFop.processTwirlXml(
             views.xml.labelsSheet.render(SHEET_SIZE_AND_WHITESPACE_IN_MM, MM, SHEET_ROWS, SHEET_COLS, imageURI, label),
@@ -278,7 +282,7 @@ public class Application extends Controller {
             processOptions
         );
 
-        return ok(pdfBytes).as(mimeType);
+        return ok(pdfBytes).as(mimeType).withHeader(HeaderNames.CONTENT_DISPOSITION, contentDispHeader);
     }
 
     public Result showAbout() {
@@ -293,7 +297,7 @@ public class Application extends Controller {
             try {
 
                 byte[] addlInfoAsBytes = Files.readAllBytes(addlInfoPathObj);
-                addlInfoAsHtml = new String(addlInfoAsBytes, "utf-8");
+                addlInfoAsHtml = new String(addlInfoAsBytes, StandardCharsets.UTF_8);
 
             } catch (IOException e) {
                 throw new RuntimeException(e);
